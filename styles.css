@@ -226,6 +226,21 @@ body{font-family:'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sa
 .redirect-message{font-size:.78rem;color:var(--text)}
 .redirect-note{font-size:.65rem;color:var(--muted)}
 
+.toast-stack{position:fixed;top:calc(72px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:10px;z-index:1400;width:calc(100% - 32px);max-width:380px;pointer-events:none}
+@media(min-width:768px){.toast-stack{top:calc(84px + env(safe-area-inset-top,0px));bottom:auto;left:auto;right:24px;transform:none}}
+.toast{display:flex;align-items:flex-start;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;box-shadow:var(--shadow-md);opacity:0;transform:translateY(14px);transition:opacity .28s ease,transform .28s ease;pointer-events:auto;will-change:opacity,transform}
+.toast.is-visible{opacity:1;transform:translateY(0)}
+.toast-icon{font-size:.95rem;margin-top:2px;color:var(--accent)}
+.toast-message{flex:1;font-size:.78rem;color:var(--text);line-height:1.45}
+.toast-message a{color:var(--accent);font-weight:600;text-decoration:none}
+.toast-message a:hover{text-decoration:underline}
+.toast-close{border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:.85rem;padding:2px;margin-left:4px}
+.toast-close:hover{color:var(--text)}
+.toast-warning{border-color:#fbbf24;background:#fef3c7}
+.toast-warning .toast-icon{color:#d97706}
+.toast-danger{border-color:#f87171;background:#fef2f2}
+.toast-danger .toast-icon{color:#b91c1c}
+
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* Dark mode (data-theme) */
@@ -286,6 +301,19 @@ body{font-family:'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sa
 [data-theme="dark"] .redirect-box{background:#1e293b;border-color:#334155;color:#f1f5f9}
 [data-theme="dark"] .redirect-message{color:#f1f5f9}
 [data-theme="dark"] .redirect-note{color:#94a3b8}
+[data-theme="dark"] .toast{background:#1e293b;border-color:#334155;color:#e2e8f0}
+[data-theme="dark"] .toast-message{color:#e2e8f0}
+[data-theme="dark"] .toast-message a{color:#bfdbfe;font-weight:600;text-decoration:underline}
+[data-theme="dark"] .toast-close{color:#94a3b8}
+[data-theme="dark"] .toast-close:hover{color:#f8fafc}
+[data-theme="dark"] .toast-warning{background:#3f310f;border-color:#fbbf24;color:#fefce8}
+[data-theme="dark"] .toast-warning .toast-message{color:#fefce8}
+[data-theme="dark"] .toast-warning .toast-message a{color:#fde68a}
+[data-theme="dark"] .toast-warning .toast-icon{color:#fbbf24}
+[data-theme="dark"] .toast-danger{background:#3d0f13;border-color:#f87171;color:#ffe4e6}
+[data-theme="dark"] .toast-danger .toast-message{color:#ffe4e6}
+[data-theme="dark"] .toast-danger .toast-message a{color:#fecdd3}
+[data-theme="dark"] .toast-danger .toast-icon{color:#fecaca}
 [data-theme="dark"] .panel-label{color:#94a3b8}
 [data-theme="dark"] .erapor-result{background:rgba(30,64,175,.22);border-color:rgba(96,165,250,.4)}
 [data-theme="dark"] .erapor-result::before{background:rgba(37,99,235,.35)}

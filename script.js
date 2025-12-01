@@ -52,6 +52,200 @@ const serviceStatusCache = typeof Map === 'function' ? new Map() : null;
 const serviceStatusStore = serviceStatusCache ? null : {};
 const statusDetailStore = {};
 let statusRefreshIntervalId = null;
+const TOAST_MAX_COUNT = 3;
+const TOAST_DEFAULT_DURATION = 9000;
+const TOAST_PERSIST_DURATION = 17000;
+const CONNECTIVITY_TOAST_INTERVAL = 45000;
+const toastState = {
+    stack: null,
+    lockId: null,
+    lockedToast: null,
+    lockMeta: null,
+    pendingOfflineCheckTimeout: null,
+    dismissedLocks: new Set()
+};
+const STATUS_MONITOR_URL = 'https://kuma.smkn1telagasari.web.id/status/smkn1tls';
+
+function resetToastSystemState(){
+    if (toastState.dismissedLocks instanceof Set){
+        toastState.dismissedLocks.clear();
+    }
+    if (toastState.pendingOfflineCheckTimeout){
+        clearTimeout(toastState.pendingOfflineCheckTimeout);
+        toastState.pendingOfflineCheckTimeout = null;
+    }
+    toastState.lockId = null;
+    toastState.lockedToast = null;
+    toastState.lockMeta = null;
+    const stack = getToastStack();
+    if (stack){
+        Array.from(stack.children).forEach(child => dismissToast(child, true, true));
+    }
+    Object.keys(statusDetailStore).forEach(key => {
+        const record = statusDetailStore[key];
+        if (record){
+            record.lastToastState = 'checking';
+            record.lastToastAt = 0;
+        }
+    });
+}
+
+function getToastStack(){
+    if (toastState.stack && document.contains(toastState.stack)){
+        return toastState.stack;
+    }
+    toastState.stack = document.getElementById('toast-stack');
+    return toastState.stack;
+}
+
+function dismissToast(node, immediate, suppressFollowup){
+    if (!node) return;
+    const timerId = node.dataset.toastTimer ? parseInt(node.dataset.toastTimer, 10) : NaN;
+    if (!Number.isNaN(timerId)){
+        clearTimeout(timerId);
+    }
+    const finalizeRemoval = () => {
+        const lockAttr = node.dataset.lockId || '';
+        const manualDismiss = node.dataset.manualDismiss === 'true';
+        if (lockAttr && toastState.lockId === lockAttr && toastState.lockedToast === node){
+            toastState.lockId = null;
+            toastState.lockedToast = null;
+            toastState.lockMeta = null;
+            if (manualDismiss && toastState.dismissedLocks instanceof Set){
+                toastState.dismissedLocks.add(lockAttr);
+            }
+            if (!manualDismiss && lockAttr === 'offline-status' && !suppressFollowup){
+                if (toastState.pendingOfflineCheckTimeout){
+                    clearTimeout(toastState.pendingOfflineCheckTimeout);
+                }
+                toastState.pendingOfflineCheckTimeout = window.setTimeout(() => {
+                    toastState.pendingOfflineCheckTimeout = null;
+                    evaluateServiceStatuses(true);
+                }, 800);
+            }
+        }
+        node.remove();
+    };
+    if (immediate){
+        finalizeRemoval();
+        return;
+    }
+    node.classList.remove('is-visible');
+    node.addEventListener('transitionend', finalizeRemoval, { once: true });
+    setTimeout(finalizeRemoval, 320);
+}
+
+function showToast(message, variant = 'warning', options){
+    const stack = getToastStack();
+    if (!stack || !message) return;
+    const normalizedVariant = ['danger','warning','success','info'].includes(variant) ? variant : 'warning';
+    const lockId = options && options.lockId ? String(options.lockId) : '';
+    if (lockId && toastState.dismissedLocks instanceof Set && toastState.dismissedLocks.has(lockId)){
+        return;
+    }
+    if (toastState.lockId && (!lockId || toastState.lockId !== lockId)){
+        return;
+    }
+    if (lockId && toastState.lockId === lockId && toastState.lockedToast){
+        dismissToast(toastState.lockedToast, true, true);
+    }
+    while (stack.children.length >= TOAST_MAX_COUNT){
+        dismissToast(stack.firstElementChild, true);
+    }
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${normalizedVariant}`;
+    toast.setAttribute('role', 'status');
+    if (lockId){
+        toast.dataset.lockId = lockId;
+    }
+
+    const icon = document.createElement('i');
+    const iconMap = {
+        danger: 'fa-circle-xmark',
+        warning: 'fa-triangle-exclamation',
+        success: 'fa-circle-check',
+        info: 'fa-circle-info'
+    };
+    icon.className = `toast-icon fas ${iconMap[normalizedVariant] || iconMap.warning}`;
+    icon.setAttribute('aria-hidden', 'true');
+
+    const text = document.createElement('p');
+    text.className = 'toast-message';
+    const allowHtml = !!(options && options.allowHtml);
+    if (allowHtml){
+        text.innerHTML = message;
+    } else {
+        text.textContent = message;
+    }
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'toast-close';
+    closeBtn.setAttribute('aria-label', 'Tutup notifikasi');
+    closeBtn.setAttribute('title', 'Tutup notifikasi');
+    closeBtn.innerHTML = '<span aria-hidden="true">&times;</span>';
+
+    closeBtn.addEventListener('click', () => {
+        toast.dataset.manualDismiss = 'true';
+        dismissToast(toast);
+    });
+
+    toast.append(icon, text, closeBtn);
+    stack.appendChild(toast);
+
+    requestAnimationFrame(() => {
+        toast.classList.add('is-visible');
+    });
+
+    const persistent = !!(options && options.persistent);
+    const requestedDuration = options && typeof options.duration === 'number' ? options.duration : TOAST_DEFAULT_DURATION;
+    const duration = persistent ? Math.max(5000, options && typeof options.persistentDuration === 'number' ? options.persistentDuration : TOAST_PERSIST_DURATION) : Math.max(2500, requestedDuration);
+    const timerId = setTimeout(() => dismissToast(toast), duration);
+    toast.dataset.toastTimer = String(timerId);
+
+    if (persistent && lockId){
+        toastState.lockId = lockId;
+        toastState.lockedToast = toast;
+        toastState.lockMeta = options && options.lockMeta ? options.lockMeta : null;
+    }
+}
+
+function announcePortalUnavailable(actionId, fallbackLabel){
+    const record = actionId ? getStatusDetailRecord(actionId) : null;
+    const label = (record && (record.label || record.serviceName)) || fallbackLabel || 'Portal E-Rapor';
+    const monitorLink = `<a href="${STATUS_MONITOR_URL}" target="_blank" rel="noopener">dasbor status</a>`;
+    showToast(`${label} belum dapat diakses. Detail kondisi tersedia di ${monitorLink}.`, 'warning', { allowHtml: true });
+}
+
+function maybeAnnounceOfflineState(record){
+    if (!record) return;
+    if (record.state === 'offline'){
+        if (toastState.dismissedLocks instanceof Set && toastState.dismissedLocks.has('offline-status')){
+            return;
+        }
+        const now = Date.now();
+        const lastState = record.lastToastState;
+        const lastAt = record.lastToastAt || 0;
+        const intervalPassed = now - lastAt > CONNECTIVITY_TOAST_INTERVAL;
+        const offlineToastActive = toastState.lockId === 'offline-status';
+        if (!offlineToastActive || lastState !== 'offline' || intervalPassed){
+            const label = record.label || record.serviceName || 'Portal E-Rapor';
+            const monitorLink = `<a href="${STATUS_MONITOR_URL}" target="_blank" rel="noopener">dasbor status</a>`;
+            showToast(`${label} sementara tidak dapat dijangkau. Pantau pembaruan server melalui ${monitorLink}.`, 'danger', { allowHtml: true, persistent: true, lockId: 'offline-status' });
+            record.lastToastState = 'offline';
+            record.lastToastAt = now;
+        }
+    } else {
+        if (toastState.pendingOfflineCheckTimeout){
+            clearTimeout(toastState.pendingOfflineCheckTimeout);
+            toastState.pendingOfflineCheckTimeout = null;
+        }
+        if (toastState.lockId === 'offline-status' && toastState.lockedToast){
+            dismissToast(toastState.lockedToast, true, true);
+        }
+        record.lastToastState = record.state || 'checking';
+    }
+}
 
 function applyThemePreference(theme){
     const nextTheme = theme === 'dark' ? 'dark' : 'light';
@@ -254,6 +448,7 @@ function setupLoadingLinks(){
         link.addEventListener('click', function(event){
             if (this.classList.contains('is-disabled') || this.getAttribute('aria-disabled') === 'true'){
                 event.preventDefault();
+                announcePortalUnavailable(this.id || '', this.getAttribute('aria-label') || this.textContent?.trim());
                 if (this.id){
                     showStatusDetailModal(this.id, this);
                 }
@@ -427,8 +622,13 @@ function setupEraporSelector(){
         window.requestAnimationFrame(() => evaluateServiceStatuses(true));
     };
 
-    yearSelect.addEventListener('change', updateOutput);
-    semesterSelect.addEventListener('change', updateOutput);
+    const handleSelectionChange = () => {
+        resetToastSystemState();
+        updateOutput();
+    };
+
+    yearSelect.addEventListener('change', handleSelectionChange);
+    semesterSelect.addEventListener('change', handleSelectionChange);
     updateOutput();
 }
 
@@ -591,6 +791,8 @@ function primeStatusDetailContext(actionId, context){
     if (isDifferentService){
         nextRecord.lastChecked = null;
         nextRecord.lastResultState = null;
+        nextRecord.lastToastState = 'checking';
+        nextRecord.lastToastAt = 0;
     }
     statusDetailStore[actionId] = nextRecord;
     renderStatusSnapshot(actionId);
@@ -832,6 +1034,7 @@ function syncStatusActionState(statusEl, status){
             const shouldEnable = status === 'online' || (status === 'checking' && record && record.lastResultState === 'online');
             updateActionAvailability(target, shouldEnable);
         }
+        maybeAnnounceOfflineState(record);
         const statusModal = document.getElementById('status-modal');
         if (statusModal && statusModal.classList.contains('active') && statusModal.getAttribute('data-active-action') === targetId){
             renderStatusDetailModal(targetId);
